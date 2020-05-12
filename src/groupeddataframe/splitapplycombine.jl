@@ -900,16 +900,36 @@ function groupreduce!(res, f, op, condf, adjust, checkempty::Bool,
     n = length(gd)
     if adjust !== nothing || checkempty
         counts = zeros(Int, n)
+        countses = [copy(counts) for i in 1:Threads.nthreads()]
     end
     groups = gd.groups
-    @inbounds for i in eachindex(incol, groups)
-        gix = groups[i]
-        x = incol[i]
-        if gix > 0 && (condf === nothing || condf(x))
-            res[gix] = op(res[gix], f(x, gix))
-            if adjust !== nothing || checkempty
-                counts[gix] += 1
+    reses = [fill!(similar(res), 0) for i in 1:Threads.nthreads()]
+    @assert keys(incol) == keys(groups)
+    @assert length(groups) % Threads.nthreads() == 0
+    Threads.@threads for tid in 1:Threads.nthreads()
+        res2 = reses[tid]
+        if adjust !== nothing  || checkempty
+            counts2 = countses[tid]
+        end
+        start = 1 + ((tid - 1) * length(groups)) ÷ Threads.nthreads()
+        stop = (tid * length(groups)) ÷ Threads.nthreads()
+        @inbounds for i in start:stop
+            gix = groups[i]
+            x = incol[i]
+            if gix > 0 && (condf === nothing || condf(x))
+                res2[gix] = op(res2[gix], f(x, gix))
+                if adjust !== nothing || checkempty
+                    counts2[gix] += 1
+                end
             end
+        end
+    end
+    for r in reses
+        res .= op.(res, r)
+    end
+    if adjust !== nothing || checkempty
+        for c in countses
+            counts .+= c
         end
     end
     outcol = adjust === nothing ? res : map(adjust, res, counts)
