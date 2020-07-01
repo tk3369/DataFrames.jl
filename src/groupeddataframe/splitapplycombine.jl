@@ -463,14 +463,14 @@ end
 
 combine(gd::GroupedDataFrame,
         cs::Union{Pair, typeof(nrow), ColumnIndex, MultiColumnIndex}...;
-        keepkeys::Bool=true, ungroup::Bool=true, threaded::Bool=true) =
+        keepkeys::Bool=true, ungroup::Bool=true, nthreads::Int=nthreads()) =
     _combine_prepare(gd, cs..., keepkeys=keepkeys, ungroup=ungroup,
-                     copycols=true, keeprows=false, threaded=threaded)
+                     copycols=true, keeprows=false, nthreads=nthreads)
 
 function _combine_prepare(gd::GroupedDataFrame,
                           @nospecialize(cs::Union{Pair, typeof(nrow),
                                                   ColumnIndex, MultiColumnIndex}...);
-                 keepkeys::Bool, ungroup::Bool, copycols::Bool, keeprows::Bool, threaded::Bool)
+                 keepkeys::Bool, ungroup::Bool, copycols::Bool, keeprows::Bool, nthreads::Int)
     @assert !isempty(cs)
     cs_vec = []
     for p in cs
@@ -544,7 +544,7 @@ function _combine_prepare(gd::GroupedDataFrame,
     f = Pair[first(x) => first(last(x)) for x in cs_norm]
     nms = Symbol[last(last(x)) for x in cs_norm]
     return combine_helper(f, gd, nms, keepkeys=keepkeys, ungroup=ungroup,
-                          copycols=copycols, keeprows=keeprows, threaded=threaded)
+                          copycols=copycols, keeprows=keeprows, nthreads=nthreads)
 end
 
 function combine(gd::GroupedDataFrame; f...)
@@ -575,12 +575,12 @@ end
 function combine_helper(f, gd::GroupedDataFrame,
                         nms::Union{AbstractVector{Symbol},Nothing}=nothing;
                         keepkeys::Bool, ungroup::Bool,
-                        copycols::Bool, keeprows::Bool, threaded::Bool)
+                        copycols::Bool, keeprows::Bool, nthreads::Int)
     if !ungroup && !keepkeys
         throw(ArgumentError("keepkeys=false when ungroup=false is not allowed"))
     end
     if length(gd) > 0
-        idx, valscat = _combine(f, gd, nms, copycols, keeprows, threaded)
+        idx, valscat = _combine(f, gd, nms, copycols, keeprows, nthreads)
         !keepkeys && ungroup && return valscat
         keys = groupcols(gd)
         for key in keys
@@ -897,7 +897,7 @@ end
 
 function groupreduce!(res, f, op, condf, adjust, checkempty::Bool,
                       incol::AbstractVector{T}, gd::GroupedDataFrame;
-                      threaded::Bool) where T
+                      nthreads::Int) where T
     n = length(gd)
     groups = gd.groups
     if adjust !== nothing || checkempty
@@ -905,8 +905,8 @@ function groupreduce!(res, f, op, condf, adjust, checkempty::Bool,
     end
     # threshold to ensure multithreading is faster
     minrowsperthread = 100_000
-    nt = min(Threads.nthreads(), length(incol) ÷ minrowsperthread)
-    if !threaded || nt <= 1 || axes(incol) != axes(groups)
+    nt = min(nthreads, Threads.nthreads(), length(incol) ÷ minrowsperthread)
+    if nt <= 1 || axes(incol) != axes(groups)
         @inbounds for i in eachindex(incol, groups)
             gix = groups[i]
             x = incol[i]
@@ -918,15 +918,13 @@ function groupreduce!(res, f, op, condf, adjust, checkempty::Bool,
             end
         end
     else
-        res_vec = [fill!(similar(res), zero(eltype(res))) for i in 1:nt]
-        @assert keys(incol) == keys(groups)
-        if adjust !== nothing || checkempty
-            counts_vec = [zeros(Int, n) for i in 1:nt]
-        end
+        res_vec = Vector{typeof(res)}(undef, nt)
+        # needs to be always allocated to fix type instability with @threads
+        counts_vec = Vector{Vector{Int}}(undef, nt)
         Threads.@threads for tid in 1:nt
-            res2 = res_vec[tid]
+            res_vec[tid] = res2 = copy(res)
             if adjust !== nothing || checkempty
-                counts2 = counts_vec[tid]
+                counts_vec[tid] = counts2 = zeros(Int, n)
             end
             start = 1 + ((tid - 1) * length(groups)) ÷ nt
             stop = (tid * length(groups)) ÷ nt
@@ -970,27 +968,27 @@ end
 # function barrier works around type instability of _groupreduce_init due to applicable
 groupreduce(f, op, condf, adjust, checkempty::Bool,
             incol::AbstractVector, gd::GroupedDataFrame;
-            threaded::Bool) =
+            nthreads::Int) =
     groupreduce!(groupreduce_init(op, condf, incol, gd),
                  f, op, condf, adjust, checkempty, incol, gd,
-                 threaded=threaded)
+                 nthreads=nthreads)
 # Avoids the overhead due to Missing when computing reduction
 groupreduce(f, op, condf::typeof(!ismissing), adjust, checkempty::Bool,
             incol::AbstractVector, gd::GroupedDataFrame;
-            threaded::Bool) =
+            nthreads::Int) =
     groupreduce!(disallowmissing(groupreduce_init(op, condf, incol, gd)),
                  f, op, condf, adjust, checkempty, incol, gd,
-                 threaded=threaded)
+                 nthreads=nthreads)
 
 (r::Reduce)(incol::AbstractVector, gd::GroupedDataFrame;
-            threaded::Bool=true) =
+            nthreads::Int=nthreads()) =
     groupreduce((x, i) -> x, r.op, r.condf, r.adjust, r.checkempty, incol, gd,
-                threaded=threaded)
+                nthreads=nthreads)
 
 function (agg::Aggregate{typeof(var)})(incol::AbstractVector, gd::GroupedDataFrame;
-                                       threaded::Bool=true)
+                                       nthreads::Int=nthreads())
     means = groupreduce((x, i) -> x, Base.add_sum, agg.condf, /, false, incol, gd,
-                        threaded=threaded)
+                        nthreads=nthreads)
     # !ismissing check is purely an optimization to avoid a copy later
     if eltype(means) >: Missing && agg.condf !== !ismissing
         T = Union{Missing, real(eltype(means))}
@@ -1000,11 +998,11 @@ function (agg::Aggregate{typeof(var)})(incol::AbstractVector, gd::GroupedDataFra
     res = zeros(T, length(gd))
     groupreduce!(res, (x, i) -> @inbounds(abs2(x - means[i])), +, agg.condf,
                  (x, l) -> l <= 1 ? oftype(x / (l-1), NaN) : x / (l-1),
-                 false, incol, gd, threaded=threaded)
+                 false, incol, gd, nthreads=nthreads)
 end
 
 function (agg::Aggregate{typeof(std)})(incol::AbstractVector, gd::GroupedDataFrame;
-                                       threaded::Bool=true)
+                                       nthreads::Int=nthreads())
     outcol = Aggregate(var, agg.condf)(incol, gd)
     map!(sqrt, outcol, outcol)
 end
@@ -1012,7 +1010,7 @@ end
 for f in (first, last)
     function (agg::Aggregate{typeof(f)})(incol::AbstractVector, gd::GroupedDataFrame)
                                          # FIXME: triggers a Julia bug
-                                         # threaded::Bool=true)
+                                         # nthreads::Int=nthreads())
         n = length(gd)
         outcol = similar(incol, n)
         fillfirst!(agg.condf, outcol, incol, gd, rev=agg.f === last)
@@ -1025,7 +1023,7 @@ for f in (first, last)
 end
 
 function (agg::Aggregate{typeof(length)})(incol::AbstractVector, gd::GroupedDataFrame;
-                                          threaded::Bool=true)
+                                          nthreads::Int=nthreads())
     if getfield(gd, :idx) === nothing
         lens = zeros(Int, length(gd))
         @inbounds for gix in gd.groups
@@ -1074,7 +1072,7 @@ end
 
 function _combine(f::AbstractVector{<:Pair},
                   gd::GroupedDataFrame, nms::AbstractVector{Symbol},
-                  copycols::Bool, keeprows::Bool, threaded::Bool)
+                  copycols::Bool, keeprows::Bool, nthreads::Int)
     # here f should be normalized and in a form of source_cols => fun
     @assert all(x -> first(x) isa Union{Int, AbstractVector{Int}, AsTable}, f)
     @assert all(x -> last(x) isa Base.Callable, f)
@@ -1107,7 +1105,7 @@ function _combine(f::AbstractVector{<:Pair},
         if isagg(p)
             incol = parentdf[!, source_cols]
             agg = check_aggregate(last(p))
-            outcol = agg(incol, gd, threaded=threaded)
+            outcol = agg(incol, gd, nthreads=nthreads)
             res[i] = idx_agg, outcol
         elseif keeprows && fun === identity && !(source_cols isa AsTable)
             @assert source_cols isa Union{Int, AbstractVector{Int}}
@@ -1203,7 +1201,7 @@ function _combine(f::AbstractVector{<:Pair},
 end
 
 function _combine(fun::Base.Callable, gd::GroupedDataFrame, ::Nothing,
-                  copycols::Bool, keeprows::Bool, threaded::Bool)
+                  copycols::Bool, keeprows::Bool, nthreads::Int)
     @assert copycols && !keeprows
     firstres = fun(gd[1])
     idx, outcols, nms = _combine_multicol(firstres, fun, gd, nothing)
@@ -1212,7 +1210,7 @@ function _combine(fun::Base.Callable, gd::GroupedDataFrame, ::Nothing,
 end
 
 function _combine(p::Pair, gd::GroupedDataFrame, ::Nothing,
-                  copycols::Bool, keeprows::Bool, threaded::Bool)
+                  copycols::Bool, keeprows::Bool, nthreads::Int)
     # here p should not be normalized as we allow tabular return value from fun
     # map and combine should not dispatch here if p is isagg
     @assert copycols && !keeprows
@@ -1616,9 +1614,9 @@ julia> select(gd, :, AsTable(Not(:a)) => sum)
 ```
 """
 select(gd::GroupedDataFrame, args...;
-       copycols::Bool=true, keepkeys::Bool=true, ungroup::Bool=true, threaded::Bool=true) =
+       copycols::Bool=true, keepkeys::Bool=true, ungroup::Bool=true, nthreads::Int=nthreads()) =
     _combine_prepare(gd, args..., copycols=copycols, keepkeys=keepkeys,
-                     ungroup=ungroup, keeprows=true, threaded=threaded)
+                     ungroup=ungroup, keeprows=true, nthreads=nthreads)
 
 """
     transform(gd::GroupedDataFrame, args...;
