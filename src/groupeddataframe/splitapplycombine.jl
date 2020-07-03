@@ -905,7 +905,7 @@ function groupreduce!(res, f, op, condf, adjust, checkempty::Bool,
     end
     # threshold to ensure multithreading is faster
     minrowsperthread = 100_000
-    nt = min(nthreads, Threads.nthreads(), length(incol) ÷ minrowsperthread)
+    nt = min(nthreads, Threads.nthreads())#, length(incol) ÷ minrowsperthread)
     if nt <= 1 || axes(incol) != axes(groups)
         @inbounds for i in eachindex(incol, groups)
             gix = groups[i]
