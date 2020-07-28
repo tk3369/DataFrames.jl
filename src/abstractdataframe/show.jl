@@ -49,7 +49,6 @@ const SHOW_TABULAR_TYPES = Union{AbstractDataFrame, DataFrameRow, DataFrameRows,
                                  DataFrameColumns, GroupedDataFrame}
 
 ourshow(io::IO, x::AbstractString) = escape_string(io, x, "")
-ourshow(io::IO, x::CategoricalValue{<:AbstractString}) = escape_string(io, get(x), "")
 ourshow(io::IO, x::Symbol) = ourshow(io, string(x))
 ourshow(io::IO, x::Nothing; styled::Bool=false) = ourshow(io, "", styled=styled)
 ourshow(io::IO, x::SHOW_TABULAR_TYPES; styled::Bool=false) =
@@ -87,14 +86,7 @@ function compacttype(T::Type, maxwidth::Int=8, initial::Bool=true)
 
     maxwidth -= 1 # we will add "…" at the end
 
-    if T <: CategoricalValue
-        sT = string(nameof(T))
-        if textwidth(sT) ≤ maxwidth
-            return sT * "…" * suffix
-        else
-            return (maxwidth ≥ 11 ? "Categorical…" : "Cat…") * suffix
-        end
-    elseif T isa Union
+    if T isa Union
         return "Union…" * suffix
     else
         sT = string(nameof(T))

@@ -399,8 +399,7 @@ function _join(df1::AbstractDataFrame, df2::AbstractDataFrame;
     if indicator !== nothing
         refs = UInt8.(coalesce.(joined[!, df1_ind], false) .+
                       2 .* coalesce.(joined[!, df2_ind], false))
-        pool = CategoricalPool{String,UInt8}(["left_only", "right_only", "both"])
-        indicatorcol = CategoricalArray{String,1}(refs, pool)
+        indicatorcol = ["left_only", "right_only", "both"][refs .- 1]
 
         select!(joined, Not([df1_ind, df2_ind]))
 
@@ -455,9 +454,6 @@ passed data frames.
    run check for `df1` and the second element for `df2`.
    By default no check is performed.
 
-When merging `on` categorical columns that differ in the ordering of their
-levels, the ordering of the left data frame takes precedence over the ordering
-of the right data frame.
 
 If more than two data frames are passed, the join is performed recursively with
 left associativity. In this case the `validate` keyword argument is applied
@@ -554,7 +550,7 @@ the result. A left join includes all rows from `df1`.
   if duplicate names are found in columns not joined on;
   if `true`, duplicate names will be suffixed with `_i`
   (`i` starting at 1 for the first duplicate).
-- `indicator` : Default: `nothing`. If a `Symbol` or string, adds categorical indicator
+- `indicator` : Default: `nothing`. If a `Symbol` or string, adds indicator
    column with the given name, for whether a row appeared in only `df1` (`"left_only"`),
    only `df2` (`"right_only"`) or in both (`"both"`). If the name is already in use,
    the column name will be modified if `makeunique=true`.
@@ -565,10 +561,6 @@ the result. A left join includes all rows from `df1`.
    By default no check is performed.
 
 All columns of the returned data table will support missing values.
-
-When merging `on` categorical columns that differ in the ordering of their
-levels, the ordering of the left data frame takes precedence over the ordering
-of the right data frame.
 
 See also: [`innerjoin`](@ref), [`rightjoin`](@ref), [`outerjoin`](@ref),
           [`semijoin`](@ref), [`antijoin`](@ref), [`crossjoin`](@ref).
@@ -657,7 +649,7 @@ the result. A right join includes all rows from `df2`.
   if duplicate names are found in columns not joined on;
   if `true`, duplicate names will be suffixed with `_i`
   (`i` starting at 1 for the first duplicate).
-- `indicator` : Default: `nothing`. If a `Symbol` or string, adds categorical indicator
+- `indicator` : Default: `nothing`. If a `Symbol` or string, adds indicator
    column with the given name for whether a row appeared in only `df1` (`"left_only"`),
    only `df2` (`"right_only"`) or in both (`"both"`). If the name is already in use,
    the column name will be modified if `makeunique=true`.
@@ -668,10 +660,6 @@ the result. A right join includes all rows from `df2`.
    By default no check is performed.
 
 All columns of the returned data table will support missing values.
-
-When merging `on` categorical columns that differ in the ordering of their
-levels, the ordering of the left data frame takes precedence over the ordering
-of the right data frame.
 
 See also: [`innerjoin`](@ref), [`leftjoin`](@ref), [`outerjoin`](@ref),
           [`semijoin`](@ref), [`antijoin`](@ref), [`crossjoin`](@ref).
@@ -765,7 +753,7 @@ of the passed data frames.
   if duplicate names are found in columns not joined on;
   if `true`, duplicate names will be suffixed with `_i`
   (`i` starting at 1 for the first duplicate).
-- `indicator` : Default: `nothing`. If a `Symbol` or string, adds categorical indicator
+- `indicator` : Default: `nothing`. If a `Symbol` or string, adds indicator
    column with the given name for whether a row appeared in only `df1` (`"left_only"`),
    only `df2` (`"right_only"`) or in both (`"both"`). If the name is already in use,
    the column name will be modified if `makeunique=true`.
@@ -777,10 +765,6 @@ of the passed data frames.
    By default no check is performed.
 
 All columns of the returned data table will support missing values.
-
-When merging `on` categorical columns that differ in the ordering of their
-levels, the ordering of the left data frame takes precedence over the ordering
-of the right data frame.
 
 If more than two data frames are passed, the join is performed
 recursively with left associativity.
@@ -883,7 +867,7 @@ match with the keys in `df2`.
   if duplicate names are found in columns not joined on;
   if `true`, duplicate names will be suffixed with `_i`
   (`i` starting at 1 for the first duplicate).
-- `indicator` : Default: `nothing`. If a `Symbol` or string, adds categorical indicator
+- `indicator` : Default: `nothing`. If a `Symbol` or string, adds indicator
    column with the given name for whether a row appeared in only `df1` (`"left_only"`),
    only `df2` (`"right_only"`) or in both (`"both"`). If the name is already in use,
    the column name will be modified if `makeunique=true`.
@@ -892,10 +876,6 @@ match with the keys in `df2`.
    Can be a tuple or a pair, with the first element indicating whether to
    run check for `df1` and the second element for `df2`.
    By default no check is performed.
-
-When merging `on` categorical columns that differ in the ordering of their
-levels, the ordering of the left data frame takes precedence over the ordering
-of the right data frame.
 
 See also: [`innerjoin`](@ref), [`leftjoin`](@ref), [`rightjoin`](@ref),
           [`outerjoin`](@ref), [`antijoin`](@ref), [`crossjoin`](@ref).
@@ -985,10 +965,6 @@ not match with the keys in `df2`.
    Can be a tuple or a pair, with the first element indicating whether to
    run check for `df1` and the second element for `df2`.
    By default no check is performed.
-
-When merging `on` categorical columns that differ in the ordering of their
-levels, the ordering of the left data frame takes precedence over the ordering
-of the right data frame.
 
 See also: [`innerjoin`](@ref), [`leftjoin`](@ref), [`rightjoin`](@ref),
           [`outerjoin`](@ref), [`semijoin`](@ref), [`crossjoin`](@ref).

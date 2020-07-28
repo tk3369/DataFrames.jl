@@ -5,30 +5,6 @@ import Base: @deprecate
 @deprecate DataFrame(column_eltypes::AbstractVector{<:Type},
                      nrows::Integer) DataFrame(column_eltypes, Symbol.('x' .* string.(1:length(column_eltypes))), nrows)
 
-function DataFrame(column_eltypes::AbstractVector{T}, cnames::AbstractVector{Symbol},
-                   categorical::AbstractVector{Bool}, nrows::Integer;
-                   makeunique::Bool=false)::DataFrame where T<:Type
-    Base.depwarn("`DataFrame` constructor with `categorical` positional argument is deprecated. " *
-                 "Instead use `DataFrame(columns, names)` constructor.",
-                 :DataFrame)
-    updated_types = convert(Vector{Type}, column_eltypes)
-    if length(categorical) != length(column_eltypes)
-        throw(DimensionMismatch("arguments column_eltypes and categorical must have the same length " *
-                                "(got $(length(column_eltypes)) and $(length(categorical)))"))
-    end
-    for i in eachindex(categorical)
-        categorical[i] || continue
-        elty = CategoricalValue{nonmissingtype(updated_types[i]),
-                                CategoricalArrays.DefaultRefType}
-        if updated_types[i] >: Missing
-            updated_types[i] = Union{elty, Missing}
-        else
-            updated_types[i] = elty
-        end
-    end
-    return DataFrame(updated_types, cnames, nrows, makeunique=makeunique)
-end
-
 import Base: show
 @deprecate show(io::IO, df::AbstractDataFrame, allcols::Bool, rowlabel::Symbol, summary::Bool) show(io, df, allcols=allcols, rowlabel=rowlabel, summary=summary)
 @deprecate show(io::IO, df::AbstractDataFrame, allcols::Bool, rowlabel::Symbol) show(io, df, allcols=allcols, rowlabel=rowlabel)

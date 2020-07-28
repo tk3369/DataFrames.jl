@@ -34,33 +34,6 @@ function hashrows_col!(h::Vector{UInt},
     h
 end
 
-# should give the same hash as AbstractVector{T}
-function hashrows_col!(h::Vector{UInt},
-                       n::Vector{Bool},
-                       v::AbstractCategoricalVector,
-                       firstcol::Bool)
-    levs = levels(v)
-    # When hashing the first column, no need to take into account previous hash,
-    # which is always zero
-    if firstcol
-        hashes = Vector{UInt}(undef, length(levs)+1)
-        hashes[1] = hash(missing)
-        hashes[2:end] .= hash.(levs)
-        @inbounds for (i, ref) in enumerate(v.refs)
-            h[i] = hashes[ref+1]
-        end
-    else
-        @inbounds for (i, x) in enumerate(v)
-            h[i] = hash(x, h[i])
-        end
-    end
-    # Doing this step separately is faster, as it would disable SIMD above
-    if eltype(v) >: Missing && length(n) > 0
-        n .|= ismissing.(v)
-    end
-    h
-end
-
 # Calculate the vector of `df` rows hash values.
 function hashrows(cols::Tuple{Vararg{AbstractVector}}, skipmissing::Bool)
     len = length(cols[1])
@@ -143,7 +116,7 @@ end
 nlevels(x::PooledArray) = length(x.pool)
 nlevels(x) = length(levels(x))
 
-function row_group_slots(cols::NTuple{N,<:Union{CategoricalVector,PooledVector}},
+function row_group_slots(cols::NTuple{N,<:Union{PooledVector}},
                          hash::Val{false},
                          groups::Union{Vector{Int}, Nothing} = nothing,
                          skipmissing::Bool = false)::Tuple{Int, Vector{UInt}, Vector{Int}, Bool} where N
@@ -177,8 +150,6 @@ function row_group_slots(cols::NTuple{N,<:Union{CategoricalVector,PooledVector}}
     refmaps = map(cols) do col
         nlevs = nlevels(col)
         refmap = collect(-1:(nlevs-1))
-        # First value in refmap is only used by CategoricalArray
-        # (corresponds to ref 0, i.e. missing values)
         refmap[1] = skipmissing ? -1 : nlevs
         if col isa PooledArray{>: Missing} && skipmissing
             missingind = get(col.invpool, missing, 0)
@@ -220,7 +191,7 @@ function row_group_slots(cols::NTuple{N,<:Union{CategoricalVector,PooledVector}}
         # To catch potential bugs inducing unnecessary computations
         @assert oldngroups != ngroups
     end
-    sorted = all(col -> col isa CategoricalVector, cols)
+    sorted = false
     return ngroups, UInt[], Int[], sorted
 end
 

@@ -9,7 +9,7 @@ into row groups.
 - `cols` : data frame columns to group by. Can be any column selector
   ($COLUMNINDEX_STR; $MULTICOLUMNINDEX_STR).
 - `sort` : whether to sort groups according to the values of the grouping columns
-  `cols`; if all `cols` are `CategoricalVector`s then groups are always sorted
+  `cols`.
   irrespective of the value of `sort`
 - `skipmissing` : whether to skip groups with `missing` values in one of the
   grouping columns `cols`
@@ -928,13 +928,7 @@ for (op, initf) in ((:max, :typemin), (:min, :typemax))
             @assert isnothing(adjust)
             S = nonmissingtype(T)
             # !ismissing check is purely an optimization to avoid a copy later
-            outcol = similar(incol, condf === !ismissing ? S : T, length(gd))
-            # Comparison is possible only between CatValues from the same pool
-            if incol isa CategoricalVector
-                U = Union{CategoricalArrays.leveltype(outcol),
-                          eltype(outcol) >: Missing ? Missing : Union{}}
-                outcol = CategoricalArray{U, 1}(outcol.refs, incol.pool)
-            end
+            outcol = similar(incol, condf === !ismissing ? S : T, length(gd))   
             # It is safe to use a non-missing init value
             # since missing will poison the result if present
             # we assume here that groups are non-empty (current design assures this)
@@ -1004,12 +998,6 @@ function groupreduce!(res::AbstractVector, f, op, condf, adjust, checkempty::Boo
     end
     if checkempty && any(iszero, counts)
         throw(ArgumentError("some groups contain only missing values"))
-    end
-    # Undo pool sharing done by groupreduce_init
-    if res isa CategoricalVector && res.pool === incol.pool
-        V = Union{CategoricalArrays.leveltype(res),
-                  eltype(res) >: Missing ? Missing : Union{}}
-        res = CategoricalArray{V, 1}(res.refs, copy(res.pool))
     end
     if isconcretetype(eltype(res))
         return res

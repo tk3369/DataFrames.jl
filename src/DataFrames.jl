@@ -2,7 +2,7 @@ module DataFrames
 
 using Statistics, Printf, REPL
 using Reexport, SortingAlgorithms, Compat, Unicode, PooledArrays
-@reexport using CategoricalArrays, Missings, InvertedIndices
+@reexport using Missings, InvertedIndices
 using Base.Sort, Base.Order, Base.Iterators
 using TableTraits, IteratorInterfaceExtensions
 
@@ -28,7 +28,6 @@ export AbstractDataFrame,
        allowmissing!,
        antijoin,
        by,
-       categorical!,
        columnindex,
        combine,
        completecases,

@@ -333,17 +333,6 @@ julia> last(df, 6)
 
 Also notice that when `DataFrame` is printed to the console or rendered in HTML (e.g. in Jupyter Notebook) you get an information about type of elements held in its columns. For example in this case:
 
-```jldoctest dataframe
-julia> DataFrame(a = 1:2, b = [1.0, missing],
-                 c = categorical('a':'b'), d = [1//2, missing])
-2×4 DataFrame
-│ Row │ a     │ b        │ c    │ d         │
-│     │ Int64 │ Float64? │ Cat… │ Rationa…? │
-├─────┼───────┼──────────┼──────┼───────────┤
-│ 1   │ 1     │ 1.0      │ 'a'  │ 1//2      │
-│ 2   │ 2     │ missing  │ 'b'  │ missing   │
-```
-
 we can observe that:
 
 * the first column `:a` can hold elements of type `Int64`;

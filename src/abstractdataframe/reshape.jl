@@ -1,7 +1,7 @@
 """
     stack(df::AbstractDataFrame, [measure_vars], [id_vars];
           variable_name=:variable, value_name=:value,
-          view::Bool=false, variable_eltype::Type=CategoricalValue{String})
+          view::Bool=false, variable_eltype::Type=String)
 
 Stack a data frame `df`, i.e. convert it from wide to long format.
 
@@ -32,7 +32,6 @@ that return views into the original data frame.
 - `view` : whether the stacked data frame should be a view rather than contain
   freshly allocated vectors.
 - `variable_eltype` : determines the element type of column `variable_name`.
-  By default a categorical vector of strings is created.
   If `variable_eltype=Symbol` it is a vector of `Symbol`,
   and if `variable_eltype=String` a vector of `String` is produced.
 
@@ -57,7 +56,7 @@ function stack(df::AbstractDataFrame,
                id_vars = Not(measure_vars);
                variable_name::SymbolOrString=:variable,
                value_name::SymbolOrString=:value, view::Bool=false,
-               variable_eltype::Type=CategoricalValue{String})
+               variable_eltype::Type=String)
     variable_name_s = Symbol(variable_name)
     value_name_s = Symbol(value_name)
     # getindex from index returns either Int or AbstractVector{Int}
@@ -75,17 +74,13 @@ function stack(df::AbstractDataFrame,
     cnames = _names(df)[ints_id_vars]
     push!(cnames, variable_name_s)
     push!(cnames, value_name_s)
-    if variable_eltype <: CategoricalValue{String}
-        nms = names(df, ints_measure_vars)
-        catnms = categorical(nms)
-        levels!(catnms, nms)
-    elseif variable_eltype === Symbol
+    if variable_eltype === Symbol
         catnms = _names(df)[ints_measure_vars]
     elseif variable_eltype === String
         catnms = PooledArray(names(df, ints_measure_vars))
     else
         throw(ArgumentError("`variable_eltype` keyword argument accepts only " *
-                            "`CategoricalValue{String}`, `String` or `Symbol` as a value."))
+                            "`String` or `Symbol` as a value."))
     end
     return DataFrame(AbstractVector[[repeat(df[!, c], outer=N) for c in ints_id_vars]..., # id_var columns
                                     repeat(catnms, inner=nrow(df)),                       # variable
@@ -100,17 +95,13 @@ function _stackview(df::AbstractDataFrame, measure_vars::AbstractVector{Int},
     cnames = _names(df)[id_vars]
     push!(cnames, variable_name)
     push!(cnames, value_name)
-    if variable_eltype <: CategoricalValue{String}
-        nms = names(df, measure_vars)
-        catnms = categorical(nms)
-        levels!(catnms, nms)
-    elseif variable_eltype <: Symbol
+    if variable_eltype <: Symbol
         catnms = _names(df)[measure_vars]
     elseif variable_eltype <: String
         catnms = names(df, measure_vars)
     else
         throw(ArgumentError("`variable_eltype` keyword argument accepts only " *
-                            "`CategoricalValue{String}`, `String` or `Symbol` as a value."))
+                            "`String` or `Symbol` as a value."))
     end
     return DataFrame(AbstractVector[[RepeatedVector(df[!, c], 1, N) for c in id_vars]..., # id_var columns
                                     RepeatedVector(catnms, nrow(df), 1),                  # variable
@@ -163,62 +154,11 @@ Note that there are some differences between the widened results above.
 """
 function unstack(df::AbstractDataFrame, rowkey::ColumnIndex, colkey::ColumnIndex,
                  value::ColumnIndex; renamecols::Function=identity)
-    refkeycol = categorical(df[!, rowkey])
-    droplevels!(refkeycol)
-    keycol = categorical(df[!, colkey])
-    droplevels!(keycol)
+    refkeycol = df[!, rowkey]
+    keycol = df[!, colkey]
     valuecol = df[!, value]
     return _unstack(df, index(df)[rowkey], index(df)[colkey],
                     keycol, valuecol, refkeycol, renamecols)
-end
-
-function _unstack(df::AbstractDataFrame, rowkey::Int, colkey::Int,
-                  keycol::CategoricalVector, valuecol::AbstractVector,
-                  refkeycol::CategoricalVector, renamecols::Function)
-    Nrow = length(refkeycol.pool)
-    Ncol = length(keycol.pool)
-    unstacked_val = [similar_missing(valuecol, Nrow) for i in 1:Ncol]
-    hadmissing = false # have we encountered missing in refkeycol
-    mask_filled = falses(Nrow+1, Ncol) # has a given [row,col] entry been filled?
-    warned_dup = false # have we already printed duplicate entries warning?
-    warned_missing = false # have we already printed missing in keycol warning?
-    for k in 1:nrow(df)
-        kref = keycol.refs[k]
-        if kref <= 0 # we have found missing in colkey
-            if !warned_missing
-                @warn("Missing value in variable :$(_names(df)[colkey]) at row $k. Skipping.")
-                warned_missing = true
-            end
-            continue # skip processing it
-        end
-        refkref = refkeycol.refs[k]
-        if refkref <= 0 # we have found missing in rowkey
-            if !hadmissing # if it is the first time we have to add a new row
-                hadmissing = true
-                # we use the fact that missing is greater than anything
-                for i in eachindex(unstacked_val)
-                    push!(unstacked_val[i], missing)
-                end
-            end
-            i = length(unstacked_val[1])
-        else
-            i = refkref
-        end
-        if !warned_dup && mask_filled[i, kref]
-            @warn("Duplicate entries in unstack at row $k for key "*
-                  "$(refkeycol[k]) and variable $(keycol[k]).")
-            warned_dup = true
-        end
-        unstacked_val[kref][i] = valuecol[k]
-        mask_filled[i, kref] = true
-    end
-    levs = levels(refkeycol)
-    # we have to handle a case with missings in refkeycol as levs will skip missing
-    col = similar(df[!, rowkey], length(levs) + hadmissing)
-    copyto!(col, levs)
-    hadmissing && (col[end] = missing)
-    df2 = DataFrame(unstacked_val, Symbol.(renamecols.(levels(keycol))), copycols=false)
-    return insertcols!(df2, 1, _names(df)[rowkey] => col)
 end
 
 function unstack(df::AbstractDataFrame, rowkeys, colkey::ColumnIndex,
@@ -229,8 +169,7 @@ function unstack(df::AbstractDataFrame, rowkeys, colkey::ColumnIndex,
     length(rowkey_ints) == 1 && return unstack(df, rowkey_ints[1], colkey, value,
                                                renamecols=renamecols)
     g = groupby(df, rowkey_ints, sort=true)
-    keycol = categorical(df[!, colkey])
-    droplevels!(keycol)
+    keycol = df[!, colkey]
     valuecol = df[!, value]
     return _unstack(df, rowkey_ints, index(df)[colkey], keycol, valuecol, g, renamecols)
 end
@@ -245,45 +184,6 @@ end
 
 unstack(df::AbstractDataFrame; renamecols::Function=identity) =
     unstack(df, :variable, :value, renamecols=renamecols)
-
-function _unstack(df::AbstractDataFrame, rowkeys::AbstractVector{Int},
-                  colkey::Int, keycol::CategoricalVector,
-                  valuecol::AbstractVector, g::GroupedDataFrame,
-                  renamecols::Function)
-    idx, starts, ends = g.idx, g.starts, g.ends
-    groupidxs = [idx[starts[i]:ends[i]] for i in 1:length(starts)]
-    rowkey = zeros(Int, size(df, 1))
-    for i in 1:length(groupidxs)
-        rowkey[groupidxs[i]] .= i
-    end
-    df1 = df[idx[starts], g.cols]
-    Nrow = length(g)
-    Ncol = length(levels(keycol))
-    unstacked_val = [similar_missing(valuecol, Nrow) for i in 1:Ncol]
-    mask_filled = falses(Nrow, Ncol)
-    warned_dup = false
-    warned_missing = false
-    for k in 1:nrow(df)
-        kref = keycol.refs[k]
-        if kref <= 0
-            if !warned_missing
-                @warn("Missing value in variable :$(_names(df)[colkey]) at row $k. Skipping.")
-                warned_missing = true
-            end
-            continue
-        end
-        i = rowkey[k]
-        if !warned_dup && mask_filled[i, kref]
-            @warn("Duplicate entries in unstack at row $k for key "*
-                 "$(tuple((df[k,s] for s in rowkeys)...)) and variable $(keycol[k]).")
-            warned_dup = true
-        end
-        unstacked_val[kref][i] = valuecol[k]
-        mask_filled[i, kref] = true
-    end
-    df2 = DataFrame(unstacked_val, Symbol.(renamecols.(levels(keycol))), copycols=false)
-    hcat(df1, df2, copycols=false)
-end
 
 """
     StackedVector <: AbstractVector
@@ -334,10 +234,6 @@ Base.eltype(v::Type{StackedVector{T}}) where {T} = T
 Base.similar(v::StackedVector, T::Type, dims::Union{Integer, AbstractUnitRange}...) =
     similar(v.components[1], T, dims...)
 
-CategoricalArrays.CategoricalArray(v::StackedVector) =
-    CategoricalArray(v[:]) # could be more efficient
-
-
 """
     RepeatedVector{T} <: AbstractVector{T}
 
@@ -375,8 +271,6 @@ end
 
 Base.parent(v::RepeatedVector) = v.parent
 DataAPI.levels(v::RepeatedVector) = levels(parent(v))
-CategoricalArrays.isordered(v::RepeatedVector{<:Union{CategoricalValue, Missing}}) =
-    isordered(parent(v))
 
 function Base.getindex(v::RepeatedVector, i::Int)
     N = length(parent(v))
@@ -391,9 +285,3 @@ Base.eltype(v::Type{RepeatedVector{T}}) where {T} = T
 Base.reverse(v::RepeatedVector) = RepeatedVector(reverse(parent(v)), v.inner, v.outer)
 Base.similar(v::RepeatedVector, T::Type, dims::Dims) = similar(parent(v), T, dims)
 Base.unique(v::RepeatedVector) = unique(parent(v))
-
-function CategoricalArrays.CategoricalArray(v::RepeatedVector)
-    res = CategoricalArray(parent(v), levels=levels(parent(v)))
-    res.refs = repeat(res.refs, inner = [v.inner], outer = [v.outer])
-    res
-end
